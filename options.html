@@ -10,18 +10,27 @@
   <main class="wrap">
     <h1>Nextcloud Notes Settings</h1>
     <form id="settingsForm">
+      <h2 class="section-title">Nextcloud sync</h2>
+
       <label for="url">Nextcloud URL</label>
-      <input type="url" id="url" name="url" placeholder="https://example.com" required />
+      <input type="url" id="url" name="url" placeholder="https://example.com" />
 
       <label for="username">Username</label>
-      <input type="text" id="username" name="username" required />
+      <input type="text" id="username" name="username" />
 
       <label for="password">Password or app password</label>
-      <input type="password" id="password" name="password" required />
+      <input type="password" id="password" name="password" />
 
       <button type="submit" id="saveButton">Save Settings</button>
       <p id="status" class="status" aria-live="polite"></p>
-      <p class="hint">Using a Nextcloud app password is safer than your main account password.</p>
+      <p class="hint">Leave fields empty to keep syncing off (notes still save locally). Using a Nextcloud app password is safer than your main account password.</p>
+
+      <h2 class="section-title">Appearance</h2>
+
+      <label for="accentColor">Accent color</label>
+      <input type="color" id="accentColor" name="accentColor" value="#0082C9" />
+
+      <p class="hint">Used for buttons/highlights in the sidebar.</p>
     </form>
   </main>
   <script src="options.js"></script>
