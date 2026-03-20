@@ -6,6 +6,7 @@
   let remoteSaveTimer = null;
   let isPreview = false;
   let searchQuery = '';
+  let categoryFilter = 'all';
 
   let syncEnabled = false;
   let hasCreds = false;
@@ -19,6 +20,7 @@
   const notesList = document.getElementById('notes-list');
   const emptyState = document.getElementById('empty-state');
   const searchInput = document.getElementById('search-input');
+  const categorySelect = document.getElementById('category-select');
   const noteTitle = document.getElementById('note-title');
   const noteEditor = document.getElementById('note-editor');
   const notePreview = document.getElementById('note-preview');
@@ -41,6 +43,8 @@
   const STORAGE_NOTES_KEY = 'nn_notes';
   const STORAGE_SYNC_ENABLED_KEY = 'nn_sync_enabled';
   const STORAGE_ACCENT_KEY = 'nn_accent';
+  const STORAGE_CATEGORY_FILTER_KEY = 'nn_category_filter';
+  const CATEGORY_EMPTY_VALUE = '__empty__';
 
   // ── Theme ────────────────────────────────────────────────────────────
   function applyTheme(theme) {
@@ -359,25 +363,110 @@
       .slice(0, 80);
   }
 
+  function getNoteCategory(note) {
+    return note && note.remote && typeof note.remote.category === 'string'
+      ? note.remote.category
+      : '';
+  }
+
+  function buildCategoryOptions() {
+    if (!categorySelect) return;
+
+    const cats = new Set();
+    let hasEmpty = false;
+
+    notes.forEach(n => {
+      const c = getNoteCategory(n);
+      if (c) cats.add(c);
+      else hasEmpty = true;
+    });
+
+    const sorted = [...cats].sort((a, b) => a.localeCompare(b));
+
+    const prev = categoryFilter;
+
+    categorySelect.innerHTML = '';
+
+    const optAll = document.createElement('option');
+    optAll.value = 'all';
+    optAll.textContent = 'All';
+    categorySelect.appendChild(optAll);
+
+    if (hasEmpty) {
+      const optEmpty = document.createElement('option');
+      optEmpty.value = CATEGORY_EMPTY_VALUE;
+      optEmpty.textContent = 'Uncategorized';
+      categorySelect.appendChild(optEmpty);
+    }
+
+    sorted.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      categorySelect.appendChild(opt);
+    });
+
+    // Restore selection if still present, otherwise fall back to "All".
+    if (prev === 'all') categoryFilter = 'all';
+    if (prev !== 'all') {
+      const stillExists =
+        prev === CATEGORY_EMPTY_VALUE ||
+        [...cats].some(x => x === prev);
+      categoryFilter = stillExists ? prev : 'all';
+    }
+
+    categorySelect.value = categoryFilter;
+  }
+
   // ── Render list ────────────────────────────────────────────────────
   function renderList() {
-    const filtered = searchQuery
-      ? notes.filter(n =>
-          n.title.toLowerCase().includes(searchQuery) ||
-          n.content.toLowerCase().includes(searchQuery)
-        )
-      : notes;
+    const q = searchQuery;
+    const filtered = notes.filter(n => {
+      const noteCat = getNoteCategory(n);
+      const passCategory =
+        categoryFilter === 'all'
+          ? true
+          : categoryFilter === CATEGORY_EMPTY_VALUE
+            ? !noteCat
+            : noteCat === categoryFilter;
+
+      if (!passCategory) return false;
+
+      if (!q) return true;
+      const title = (n.title || '').toLowerCase();
+      const content = (n.content || '').toLowerCase();
+      return title.includes(q) || content.includes(q);
+    });
 
     const sorted = [...filtered].sort((a, b) => b.updated - a.updated);
 
     notesList.innerHTML = '';
 
     if (sorted.length === 0) {
-      if (!searchQuery) {
+      if (!searchQuery && categoryFilter === 'all') {
         notesList.appendChild(emptyState);
         emptyState.style.display = 'flex';
       } else {
-        notesList.innerHTML = '<div class="empty-state"><svg width="36" height="36" viewBox="0 0 36 36" fill="none" class="empty-pad-icon"><rect x="5" y="7" width="26" height="25" rx="3" stroke="var(--border2)" stroke-width="1.8"/><circle cx="12" cy="7" r="2.5" fill="var(--bg)" stroke="var(--border2)" stroke-width="1.5"/><circle cx="18" cy="7" r="2.5" fill="var(--bg)" stroke="var(--border2)" stroke-width="1.5"/><circle cx="24" cy="7" r="2.5" fill="var(--bg)" stroke="var(--border2)" stroke-width="1.5"/><line x1="10" y1="17" x2="26" y2="17" stroke="var(--border2)" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="22" x2="26" y2="22" stroke="var(--border2)" stroke-width="1.5" stroke-linecap="round"/><line x1="10" y1="27" x2="20" y2="27" stroke="var(--border2)" stroke-width="1.5" stroke-linecap="round"/></svg><p>No results found</p></div>';
+        const label =
+          categoryFilter === CATEGORY_EMPTY_VALUE
+            ? 'Uncategorized'
+            : categoryFilter;
+        const byCategoryText =
+          categoryFilter === 'all' ? 'No results found' : 'No notes found in ' + label;
+        const bySearchText = byCategoryText + (searchQuery ? ' for "' + searchQuery + '"' : '');
+        notesList.innerHTML =
+          '<div class="empty-state">' +
+            '<svg width="36" height="36" viewBox="0 0 36 36" fill="none" class="empty-pad-icon">' +
+              '<rect x="5" y="7" width="26" height="25" rx="3" stroke="var(--border2)" stroke-width="1.8"/>' +
+              '<circle cx="12" cy="7" r="2.5" fill="var(--bg)" stroke="var(--border2)" stroke-width="1.5"/>' +
+              '<circle cx="18" cy="7" r="2.5" fill="var(--bg)" stroke="var(--border2)" stroke-width="1.5"/>' +
+              '<circle cx="24" cy="7" r="2.5" fill="var(--bg)" stroke="var(--border2)" stroke-width="1.5"/>' +
+              '<line x1="10" y1="17" x2="26" y2="17" stroke="var(--border2)" stroke-width="1.5" stroke-linecap="round"/>' +
+              '<line x1="10" y1="22" x2="26" y2="22" stroke="var(--border2)" stroke-width="1.5" stroke-linecap="round"/>' +
+              '<line x1="10" y1="27" x2="20" y2="27" stroke="var(--border2)" stroke-width="1.5" stroke-linecap="round"/>' +
+            '</svg>' +
+            '<p>' + escapeHtml(bySearchText) + '</p>' +
+          '</div>';
       }
       return;
     }
@@ -692,6 +781,7 @@
     }
 
     await saveNotes();
+    buildCategoryOptions();
     renderList();
     updateSyncStatus();
     return { ok: true };
@@ -882,6 +972,14 @@
     renderList();
   });
 
+  if (categorySelect) {
+    categorySelect.addEventListener('change', async () => {
+      categoryFilter = categorySelect.value;
+      await chrome.storage.local.set({ [STORAGE_CATEGORY_FILTER_KEY]: categoryFilter });
+      renderList();
+    });
+  }
+
   syncStatus.addEventListener('click', async () => {
     // If the status is currently showing a sync failure message,
     // clicking it copies the message instead of toggling sync.
@@ -1016,6 +1114,13 @@
     await loadAccentColor();
     await loadNotes();
     await refreshCredsAndSyncPref();
+
+    const pref = await chrome.storage.local.get([STORAGE_CATEGORY_FILTER_KEY]);
+    if (typeof pref[STORAGE_CATEGORY_FILTER_KEY] === 'string' && pref[STORAGE_CATEGORY_FILTER_KEY]) {
+      categoryFilter = pref[STORAGE_CATEGORY_FILTER_KEY];
+    }
+
+    buildCategoryOptions();
     renderList();
     showView('list');
     updateSyncStatus();

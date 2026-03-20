@@ -168,6 +168,38 @@ html, body {
 #search-input::placeholder { color: var(--text3); }
 #search-input:focus { border-color: var(--accent); }
 
+/* ── Category filter ── */
+.filter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+
+.filter-label {
+  font-size: 11px;
+  color: var(--text3);
+  flex-shrink: 0;
+  width: 70px;
+}
+
+.category-select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.category-select:focus { border-color: var(--accent); }
+
 /* ── Notes List ── */
 .notes-list {
   flex: 1;
