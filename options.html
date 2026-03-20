@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nextcloud Notes Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Nextcloud Notes Settings</h1>
+    <form id="settingsForm">
+      <label for="url">Nextcloud URL</label>
+      <input type="url" id="url" name="url" placeholder="https://example.com" required />
+
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" required />
+
+      <label for="password">Password or app password</label>
+      <input type="password" id="password" name="password" required />
+
+      <button type="submit" id="saveButton">Save Settings</button>
+      <p id="status" class="status" aria-live="polite"></p>
+      <p class="hint">Using a Nextcloud app password is safer than your main account password.</p>
+    </form>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

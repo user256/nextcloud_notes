@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nextcloud Notes</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>New Note</h1>
+    <form id="noteForm">
+      <textarea id="noteText" placeholder="Write a note..." autofocus required></textarea>
+      <input type="text" id="noteTitle" placeholder="Optional title" />
+      <button type="submit" id="saveButton">Save Note</button>
+      <p id="status" class="status" aria-live="polite"></p>
+    </form>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

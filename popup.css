@@ -1,0 +1,64 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f7f7f8;
+  color: #222;
+}
+
+.wrap {
+  width: 320px;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+#noteForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#noteText {
+  min-height: 180px;
+  resize: vertical;
+  padding: 10px;
+  font: inherit;
+  border: 1px solid #cfcfd4;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+#noteTitle {
+  padding: 10px;
+  font: inherit;
+  border: 1px solid #cfcfd4;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: #2563eb;
+  color: white;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.status {
+  min-height: 18px;
+  margin: 0;
+  font-size: 12px;
+  color: #444;
+}
