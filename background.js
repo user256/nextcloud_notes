@@ -25,7 +25,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
 
       if (request.action === 'ncCreateNote') {
-        const resp = await createRemoteNote({ title: request.title, content: request.content });
+        const resp = await createRemoteNote({ title: request.title, content: request.content, category: request.category });
         return sendResponse(resp);
       }
 
@@ -34,7 +34,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           noteId: request.noteId,
           title: request.title,
           content: request.content,
-          etag: request.etag
+          etag: request.etag,
+          category: request.category
         });
         return sendResponse(resp);
       }
@@ -46,7 +47,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       return sendResponse({ ok: false, error: 'Unknown action' });
     } catch (e) {
-      return sendResponse({ ok: false, error: e && e.message ? e.message : 'Unknown error' });
+      const msg = e && typeof e.message === 'string' ? e.message : 'Unknown error';
+      return sendResponse(responseWithError({ ok: false, error: msg }));
     }
   })();
   return true;
@@ -76,6 +78,52 @@ async function parseError(res) {
   } catch {
     return '';
   }
+}
+
+/** Turn Notes API / Nextcloud JSON or text error bodies into a single string for the UI. */
+function errorMessageFromFailedFetch(resp) {
+  if (!resp || resp.ok) return '';
+  const status = resp.status != null ? String(resp.status) : 'unknown';
+  const d = resp.data;
+
+  if (typeof d === 'string') {
+    const t = d.trim();
+    if (t) return t.length > 2000 ? t.slice(0, 2000) + '…' : t;
+    return 'Nextcloud returned HTTP ' + status;
+  }
+
+  if (d && typeof d === 'object') {
+    const msg =
+      (typeof d.message === 'string' && d.message) ||
+      (typeof d.error === 'string' && d.error) ||
+      (d.ocs && d.ocs.meta && typeof d.ocs.meta.message === 'string' && d.ocs.meta.message) ||
+      '';
+    if (msg) return msg;
+    try {
+      const s = JSON.stringify(d);
+      return s.length > 2000 ? s.slice(0, 2000) + '…' : s;
+    } catch {
+      return 'Nextcloud returned HTTP ' + status;
+    }
+  }
+
+  return 'Nextcloud returned HTTP ' + status;
+}
+
+/** Guarantee message responses always carry a string `error` (structured clone safe). */
+function responseWithError(base) {
+  const out = { ...base };
+  if (typeof out.error !== 'undefined' && typeof out.error !== 'string') {
+    try {
+      out.error =
+        out.error && typeof out.error.message === 'string'
+          ? out.error.message
+          : JSON.stringify(out.error);
+    } catch {
+      out.error = 'Unknown error';
+    }
+  }
+  return out;
 }
 
 async function fetchJsonOrText(url, options) {
@@ -135,8 +183,7 @@ async function fetchRemoteNotes({ chunkSize }) {
     });
 
     if (!resp.ok) {
-      const err = typeof resp.data === 'string' && resp.data ? resp.data : ('Nextcloud returned ' + resp.status);
-      return { ok: false, error: err };
+      return responseWithError({ ok: false, error: errorMessageFromFailedFetch(resp), status: resp.status });
     }
 
     const notes = Array.isArray(resp.data) ? resp.data : [];
@@ -166,14 +213,13 @@ async function fetchRemoteNote({ noteId }) {
   });
 
   if (!resp.ok) {
-    const err = typeof resp.data === 'string' && resp.data ? resp.data : ('Nextcloud returned ' + resp.status);
-    return { ok: false, error: err };
+    return responseWithError({ ok: false, error: errorMessageFromFailedFetch(resp), status: resp.status });
   }
 
   return { ok: true, note: resp.data };
 }
 
-async function createRemoteNote({ title, content }) {
+async function createRemoteNote({ title, content, category }) {
   const creds = await getCreds();
   if (!creds) return { ok: false, code: 'NO_CREDS', error: 'Missing Nextcloud credentials.' };
 
@@ -184,6 +230,7 @@ async function createRemoteNote({ title, content }) {
   const body = {};
   if (typeof title === 'string' && title.trim()) body.title = title;
   if (typeof content === 'string') body.content = content;
+  if (typeof category === 'string') body.category = category;
 
   const resp = await fetchJsonOrText(url, {
     method: 'POST',
@@ -196,14 +243,25 @@ async function createRemoteNote({ title, content }) {
   });
 
   if (!resp.ok) {
-    const err = typeof resp.data === 'string' && resp.data ? resp.data : ('Nextcloud returned ' + resp.status);
-    return { ok: false, error: err, status: resp.status };
+    return responseWithError({
+      ok: false,
+      error: errorMessageFromFailedFetch(resp),
+      status: resp.status
+    });
+  }
+
+  if (!resp.data || typeof resp.data !== 'object' || typeof resp.data.id === 'undefined') {
+    return responseWithError({
+      ok: false,
+      error: 'Create succeeded but server response was missing note id.',
+      status: resp.status
+    });
   }
 
   return { ok: true, note: resp.data };
 }
 
-async function updateRemoteNote({ noteId, title, content, etag }) {
+async function updateRemoteNote({ noteId, title, content, etag, category }) {
   const creds = await getCreds();
   if (!creds) return { ok: false, code: 'NO_CREDS', error: 'Missing Nextcloud credentials.' };
 
@@ -214,6 +272,7 @@ async function updateRemoteNote({ noteId, title, content, etag }) {
   const body = {};
   if (typeof title === 'string' && title.trim()) body.title = title;
   if (typeof content === 'string') body.content = content;
+  if (typeof category === 'string') body.category = category;
 
   function normalizeEtagForIfMatch(v) {
     if (typeof v !== 'string') return null;
@@ -283,11 +342,8 @@ async function updateRemoteNote({ noteId, title, content, etag }) {
     break; // non-412 errors
   }
 
-  const err =
-    last && typeof last.data !== 'undefined'
-      ? (typeof last.data === 'string' ? last.data : JSON.stringify(last.data))
-      : ('Nextcloud returned ' + (last ? last.status : 'unknown'));
-  return { ok: false, error: err, status: last ? last.status : undefined };
+  const err = last ? errorMessageFromFailedFetch(last) : 'Nextcloud returned unknown error';
+  return responseWithError({ ok: false, error: err, status: last ? last.status : undefined });
 }
 
 async function deleteRemoteNote({ noteId }) {

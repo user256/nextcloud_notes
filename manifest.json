@@ -1,16 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Nextcloud Notes",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Markdown notes with optional Nextcloud syncing (Scratchpad-style sidebar).",
   "permissions": ["storage", "sidePanel"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_title": "Nextcloud Notes",
     "default_icon": {
-      "16": "logo.png",
-      "48": "logo.png",
-      "128": "logo.png"
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
   },
   "background": {
@@ -21,8 +22,9 @@
     "default_path": "sidepanel.html"
   },
   "icons": {
-    "16": "logo.png",
-    "48": "logo.png",
-    "128": "logo.png"
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   }
 }

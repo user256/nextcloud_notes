@@ -12,6 +12,8 @@
   let hasCreds = false;
   let lastSyncStatusText = '';
   let lastSyncErrorRaw = '';
+  let categoryModalValue = '';
+  let activeTagFilters = [];
 
   // ── DOM refs ────────────────────────────────────────────────────────
   const html = document.documentElement;
@@ -27,6 +29,7 @@
   const wordCount = document.getElementById('word-count');
   const saveStatus = document.getElementById('save-status');
   const syncStatus = document.getElementById('sync-status');
+  const noteCategorySelect = document.getElementById('note-category-select');
   const btnNewNote = document.getElementById('btn-new-note');
   const btnFetchRemote = document.getElementById('btn-fetch-remote');
   const btnSettings = document.getElementById('btn-settings');
@@ -39,12 +42,36 @@
   const iconMoon = document.getElementById('icon-moon');
   const iconSun = document.getElementById('icon-sun');
 
+  const categoryOverlay = document.getElementById('category-overlay');
+  const categoryBubbles = document.getElementById('category-bubbles');
+  const categoryInput = document.getElementById('category-input');
+  const btnCategoryApply = document.getElementById('btn-category-apply');
+  const btnCategoryClear = document.getElementById('btn-category-clear');
+  const btnCategoryCancel = document.getElementById('btn-category-cancel');
+
+  const tagSuggestions = document.getElementById('tag-suggestions');
+  const activeFiltersEl = document.getElementById('active-filters');
+  const noteCountEl = document.getElementById('note-count');
+  const tagsList = document.getElementById('tags-list');
+  const tagInput = document.getElementById('tag-input');
+
   // ── Storage keys ────────────────────────────────────────────────────
   const STORAGE_NOTES_KEY = 'nn_notes';
   const STORAGE_SYNC_ENABLED_KEY = 'nn_sync_enabled';
   const STORAGE_ACCENT_KEY = 'nn_accent';
+  const STORAGE_PREFS_KEY = 'nn_prefs';
   const STORAGE_CATEGORY_FILTER_KEY = 'nn_category_filter';
   const CATEGORY_EMPTY_VALUE = '__empty__';
+
+  const PREFS_DEFAULTS = {
+    editorFont: 'JetBrains Mono',
+    previewFont: 'DM Sans',
+    editorSize: 12,
+    previewSize: 13,
+    editorColor: null,
+    previewColor: null
+  };
+  let editorPrefs = { ...PREFS_DEFAULTS };
 
   // ── Theme ────────────────────────────────────────────────────────────
   function applyTheme(theme) {
@@ -122,9 +149,38 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!changes[STORAGE_ACCENT_KEY]) return;
-    setAccentColor(changes[STORAGE_ACCENT_KEY].newValue);
+    if (changes[STORAGE_ACCENT_KEY]) {
+      setAccentColor(changes[STORAGE_ACCENT_KEY].newValue);
+    }
+    if (changes[STORAGE_PREFS_KEY]) {
+      editorPrefs = { ...PREFS_DEFAULTS, ...(changes[STORAGE_PREFS_KEY].newValue || {}) };
+      applyEditorPrefs();
+    }
   });
+
+  function applyEditorPrefs() {
+    const root = html.style;
+    root.setProperty('--user-editor-font', '\'' + editorPrefs.editorFont + '\', monospace');
+    root.setProperty('--user-preview-font', '\'' + editorPrefs.previewFont + '\', sans-serif');
+    root.setProperty('--user-editor-size', editorPrefs.editorSize + 'px');
+    root.setProperty('--user-preview-size', editorPrefs.previewSize + 'px');
+    if (editorPrefs.editorColor) {
+      root.setProperty('--user-editor-color', editorPrefs.editorColor);
+    } else {
+      root.removeProperty('--user-editor-color');
+    }
+    if (editorPrefs.previewColor) {
+      root.setProperty('--user-preview-color', editorPrefs.previewColor);
+    } else {
+      root.removeProperty('--user-preview-color');
+    }
+  }
+
+  async function loadEditorPrefs() {
+    const r = await chrome.storage.local.get([STORAGE_PREFS_KEY]);
+    editorPrefs = { ...PREFS_DEFAULTS, ...(r[STORAGE_PREFS_KEY] || {}) };
+    applyEditorPrefs();
+  }
 
   function openOptionsPage() {
     if (chrome.runtime && chrome.runtime.openOptionsPage) {
@@ -327,6 +383,8 @@
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       title: '',
       content: '',
+      category: '',
+      tags: [],
       created: Date.now(),
       updated: Date.now(),
       remote: null // { id, etag, readonly, modified, category, favorite }
@@ -364,9 +422,10 @@
   }
 
   function getNoteCategory(note) {
-    return note && note.remote && typeof note.remote.category === 'string'
-      ? note.remote.category
-      : '';
+    if (!note) return '';
+    if (typeof note.category === 'string') return note.category;
+    if (note.remote && typeof note.remote.category === 'string') return note.remote.category;
+    return '';
   }
 
   function buildCategoryOptions() {
@@ -418,6 +477,147 @@
     categorySelect.value = categoryFilter;
   }
 
+  function buildNoteCategoryDropdownOptions() {
+    if (!noteCategorySelect) return;
+
+    const cats = new Set();
+    let hasEmpty = false;
+
+    notes.forEach(n => {
+      const c = getNoteCategory(n);
+      if (c) cats.add(c);
+      else hasEmpty = true;
+    });
+
+    // Always include the current note's category even if it's the only one.
+    const current = currentNoteId ? getNoteById(currentNoteId) : null;
+    const currentCat = current ? getNoteCategory(current) : '';
+    const currentIsEmpty = !currentCat;
+    if (currentIsEmpty) hasEmpty = true;
+    if (!currentIsEmpty && currentCat) cats.add(currentCat);
+
+    const sorted = [...cats].sort((a, b) => a.localeCompare(b));
+
+    const currentValue = currentIsEmpty ? '__empty__' : currentCat || '__empty__';
+
+    noteCategorySelect.innerHTML = '';
+
+    if (hasEmpty) {
+      const optEmpty = document.createElement('option');
+      optEmpty.value = '__empty__';
+      optEmpty.textContent = 'Uncategorized';
+      noteCategorySelect.appendChild(optEmpty);
+    }
+
+    sorted.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      noteCategorySelect.appendChild(opt);
+    });
+
+    const optCustom = document.createElement('option');
+    optCustom.value = '__custom__';
+    optCustom.textContent = 'Custom…';
+    noteCategorySelect.appendChild(optCustom);
+
+    noteCategorySelect.value = currentValue;
+    updateNoteCategorySelectAppearance();
+  }
+
+  function updateNoteCategorySelectAppearance() {
+    if (!noteCategorySelect) return;
+    const note = currentNoteId ? getNoteById(currentNoteId) : null;
+    const cat = note ? getNoteCategory(note) : '';
+    const hasCat = !!(cat && String(cat).trim());
+    noteCategorySelect.classList.toggle('has-category', hasCat);
+  }
+
+  // ── Tags (local-only metadata; not synced to Nextcloud) ─────────────
+  function getAllTags() {
+    const set = new Set();
+    notes.forEach(n => (n.tags || []).forEach(t => set.add(t)));
+    return [...set].sort();
+  }
+
+  function renderActiveFilters() {
+    if (!activeFiltersEl) return;
+    activeFiltersEl.innerHTML = '';
+    if (activeTagFilters.length === 0) {
+      activeFiltersEl.classList.add('hidden');
+      return;
+    }
+    activeFiltersEl.classList.remove('hidden');
+    activeTagFilters.forEach(tag => {
+      const chip = document.createElement('div');
+      chip.className = 'filter-tag';
+      chip.innerHTML = '#' + escapeHtml(tag) + ' <button type="button" title="Remove filter">&times;</button>';
+      chip.querySelector('button').addEventListener('click', () => {
+        activeTagFilters = activeTagFilters.filter(t => t !== tag);
+        renderActiveFilters();
+        renderList();
+      });
+      activeFiltersEl.appendChild(chip);
+    });
+  }
+
+  function buildTagSuggestions(rawQuery) {
+    if (!tagSuggestions) return;
+    const q = (rawQuery || '').trim();
+    if (!q.startsWith('#') && q.length < 1) {
+      tagSuggestions.classList.add('hidden');
+      return;
+    }
+    const needle = q.startsWith('#') ? q.slice(1) : q;
+    const allTags = getAllTags();
+    const matches = allTags.filter(t => t.toLowerCase().includes(needle.toLowerCase()));
+    if (matches.length === 0) {
+      tagSuggestions.classList.add('hidden');
+      return;
+    }
+    tagSuggestions.innerHTML = '';
+    matches.forEach(tag => {
+      const item = document.createElement('div');
+      item.className = 'tag-suggestion-item';
+      const count = notes.filter(n => (n.tags || []).includes(tag)).length;
+      item.innerHTML = '<span>#</span>' + escapeHtml(tag) + ' <span style="margin-left:auto;opacity:0.5">' + count + '</span>';
+      item.addEventListener('click', () => {
+        if (!activeTagFilters.includes(tag)) activeTagFilters.push(tag);
+        renderActiveFilters();
+        searchInput.value = '';
+        searchQuery = '';
+        tagSuggestions.classList.add('hidden');
+        renderList();
+      });
+      tagSuggestions.appendChild(item);
+    });
+    tagSuggestions.classList.remove('hidden');
+  }
+
+  function renderTagChips(tags) {
+    if (!tagsList) return;
+    tagsList.innerHTML = '';
+    const note = currentNoteId ? getNoteById(currentNoteId) : null;
+    const readOnly = !!(note && note.remote && note.remote.readonly);
+    (tags || []).forEach(tag => {
+      const chip = document.createElement('div');
+      chip.className = 'tag-chip';
+      if (readOnly) {
+        chip.textContent = '#' + tag;
+      } else {
+        chip.innerHTML = '#' + escapeHtml(tag) + ' <button type="button" title="Remove tag">&times;</button>';
+        chip.querySelector('button').addEventListener('click', () => {
+          const n = getNoteById(currentNoteId);
+          if (!n) return;
+          n.tags = (n.tags || []).filter(t => t !== tag);
+          renderTagChips(n.tags);
+          debouncedSave();
+        });
+      }
+      tagsList.appendChild(chip);
+    });
+  }
+
   // ── Render list ────────────────────────────────────────────────────
   function renderList() {
     const q = searchQuery;
@@ -432,18 +632,40 @@
 
       if (!passCategory) return false;
 
+      if (activeTagFilters.length > 0) {
+        const tgs = n.tags || [];
+        if (!activeTagFilters.every(ft => tgs.includes(ft))) return false;
+      }
+
       if (!q) return true;
+      const qq = q.replace(/^#/, '');
       const title = (n.title || '').toLowerCase();
       const content = (n.content || '').toLowerCase();
-      return title.includes(q) || content.includes(q);
+      return (
+        title.includes(qq) ||
+        content.includes(qq) ||
+        (n.tags || []).some(t => t.toLowerCase().includes(qq))
+      );
     });
 
     const sorted = [...filtered].sort((a, b) => b.updated - a.updated);
+    const total = notes.length;
+
+    if (noteCountEl) {
+      noteCountEl.textContent =
+        total === 0
+          ? ''
+          : sorted.length === total
+            ? total + ' note' + (total !== 1 ? 's' : '')
+            : sorted.length + ' of ' + total;
+    }
 
     notesList.innerHTML = '';
 
     if (sorted.length === 0) {
-      if (!searchQuery && categoryFilter === 'all') {
+      const noFilters =
+        !searchQuery && categoryFilter === 'all' && activeTagFilters.length === 0;
+      if (noFilters) {
         notesList.appendChild(emptyState);
         emptyState.style.display = 'flex';
       } else {
@@ -451,8 +673,11 @@
           categoryFilter === CATEGORY_EMPTY_VALUE
             ? 'Uncategorized'
             : categoryFilter;
-        const byCategoryText =
+        let byCategoryText =
           categoryFilter === 'all' ? 'No results found' : 'No notes found in ' + label;
+        if (activeTagFilters.length) {
+          byCategoryText += ' (tags: ' + activeTagFilters.map(t => '#' + t).join(', ') + ')';
+        }
         const bySearchText = byCategoryText + (searchQuery ? ' for "' + searchQuery + '"' : '');
         notesList.innerHTML =
           '<div class="empty-state">' +
@@ -481,21 +706,28 @@
       const preview = getPreviewText(note.content);
       const title = note.title || 'Untitled';
       const isReadonlyRemote = !!(note.remote && note.remote.readonly);
+      const noteCat = getNoteCategory(note);
+      const tagList = note.tags || [];
+      const tagPills = tagList
+        .map(t => '<span class="note-tag-pill" data-tag="' + escapeAttr(t) + '">#' + escapeHtml(t) + '</span>')
+        .join('');
 
       const remoteTag = syncEnabled && note.remote ? (isReadonlyRemote ? ' (read-only)' : '') : '';
 
       item.innerHTML =
         '<div class="note-item-click">' +
-          '<svg class="note-item-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">' +
-            '<rect x="1.5" y="2" width="11" height="11" rx="1.5" fill="var(--accent-dim)" stroke="var(--accent)" stroke-width="1.2"/>' +
-            '<line x1="3.5" y1="5.5" x2="10.5" y2="5.5" stroke="var(--accent)" stroke-width="0.9" stroke-linecap="round" opacity="0.7"/>' +
-            '<line x1="3.5" y1="7.5" x2="10.5" y2="7.5" stroke="var(--accent)" stroke-width="0.9" stroke-linecap="round" opacity="0.55"/>' +
-            '<line x1="3.5" y1="9.5" x2="7.5" y2="9.5" stroke="var(--accent)" stroke-width="0.9" stroke-linecap="round" opacity="0.4"/>' +
+          '<svg class="note-item-icon" width="14" height="14" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+            '<path d="M20 0h88c11 0 20 9 20 20v88c0 11-9 20-20 20H20c-11 0-20-9-20-20V20C0 9 9 0 20 0" style="fill:#0082c9"/>' +
+            '<path d="M15 94.2V115h20.8l61.4-61.4-20.8-20.9zm98.4-56.7c2.2-2.2 2.2-5.7 0-7.8l-13-13c-2.2-2.2-5.7-2.2-7.8 0L82.4 26.8l20.8 20.8z" style="fill:#fff"/>' +
           '</svg>' +
           '<div class="note-item-body">' +
             '<div class="note-item-title">' + escapeHtml(title + remoteTag) + '</div>' +
             (preview ? '<div class="note-item-preview">' + escapeHtml(preview) + '</div>' : '') +
-            '<div class="note-item-meta"><span class="note-item-date">' + formatDate(note.updated) + '</span></div>' +
+            '<div class="note-item-meta">' +
+              '<span class="note-item-date">' + formatDate(note.updated) + '</span>' +
+              (noteCat ? '<span class="note-item-category">' + escapeHtml(noteCat) + '</span>' : '') +
+              (tagPills ? '<div class="note-item-tags">' + tagPills + '</div>' : '') +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<button class="note-item-delete" title="Delete note" data-id="' + escapeAttr(note.id) + '">' +
@@ -508,6 +740,16 @@
       item.querySelector('.note-item-delete').addEventListener('click', e => {
         e.stopPropagation();
         confirmDeleteById(note.id, title);
+      });
+      item.querySelectorAll('.note-tag-pill').forEach(pill => {
+        pill.addEventListener('click', e => {
+          e.stopPropagation();
+          const tag = pill.getAttribute('data-tag') || '';
+          if (!tag || activeTagFilters.includes(tag)) return;
+          activeTagFilters.push(tag);
+          renderActiveFilters();
+          renderList();
+        });
       });
 
       notesList.appendChild(item);
@@ -544,6 +786,21 @@
     noteTitle.disabled = isReadonlyRemote;
     noteTitle.style.opacity = isReadonlyRemote ? '0.7' : '';
 
+    if (noteCategorySelect) {
+      const cat = getNoteCategory(note);
+      const value = cat ? cat : '__empty__';
+      noteCategorySelect.value = value;
+      noteCategorySelect.disabled = isReadonlyRemote;
+      updateNoteCategorySelectAppearance();
+    }
+
+    if (!note.tags) note.tags = [];
+    renderTagChips(note.tags);
+    if (tagInput) {
+      tagInput.value = '';
+      tagInput.disabled = isReadonlyRemote;
+    }
+
     btnDelete.disabled = false;
     noteEditor.classList.remove('hidden');
     notePreview.classList.add('hidden');
@@ -573,6 +830,11 @@
     showView('list');
     renderList();
     currentNoteId = null;
+    renderTagChips([]);
+    if (tagInput) {
+      tagInput.value = '';
+      tagInput.disabled = false;
+    }
   }
 
   // ── Save ────────────────────────────────────────────────────────────
@@ -593,6 +855,121 @@
     note.updated = Date.now();
 
     return saveNotes();
+  }
+
+  function openCategoryModal() {
+    if (!currentNoteId) return;
+    const note = getNoteById(currentNoteId);
+    if (!note) return;
+    const isRemoteReadOnly = !!(note.remote && note.remote.readonly);
+
+    if (noteCategorySelect) {
+      noteCategorySelect.disabled = isRemoteReadOnly;
+    }
+
+    categoryModalValue = getNoteCategory(note);
+    if (categoryInput) categoryInput.value = categoryModalValue;
+
+    if (btnCategoryApply) btnCategoryApply.disabled = isRemoteReadOnly;
+    if (categoryInput) categoryInput.disabled = isRemoteReadOnly;
+
+    // Build bubbles (tag cloud) from current notes.
+    if (categoryBubbles) {
+      const cats = new Set();
+      let hasEmpty = false;
+      notes.forEach(n => {
+        const c = getNoteCategory(n);
+        if (c) cats.add(c);
+        else hasEmpty = true;
+      });
+
+      const sorted = [...cats].sort((a, b) => a.localeCompare(b));
+      categoryBubbles.innerHTML = '';
+
+      const makeBubble = (val, label) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cat-bubble';
+        if (val === '') b.dataset.catValue = CATEGORY_EMPTY_VALUE;
+        else b.dataset.catValue = val;
+        b.textContent = label;
+        if (label.toLowerCase() === 'uncategorized') {
+          // no-op; bubble value stored in dataset
+        }
+        // active state
+        const active = (val === '' && categoryModalValue === '') || (val !== '' && categoryModalValue === val);
+        if (active) b.classList.add('active');
+        b.addEventListener('click', () => {
+          // Selecting a bubble updates input but does not apply until Apply.
+          if (val === '') {
+            categoryModalValue = '';
+            if (categoryInput) categoryInput.value = '';
+          } else {
+            categoryModalValue = val;
+            if (categoryInput) categoryInput.value = val;
+          }
+          // Update active bubble styles without rebuilding the whole list.
+          if (categoryBubbles) {
+            Array.from(categoryBubbles.querySelectorAll('.cat-bubble')).forEach(el => {
+              const ds = el.dataset && el.dataset.catValue ? el.dataset.catValue : '';
+              const effective = ds === CATEGORY_EMPTY_VALUE ? '' : ds;
+              el.classList.toggle('active', effective === categoryModalValue);
+            });
+          }
+        });
+        return b;
+      };
+
+      if (hasEmpty) categoryBubbles.appendChild(makeBubble('', 'Uncategorized'));
+      sorted.forEach(c => categoryBubbles.appendChild(makeBubble(c, c)));
+    }
+
+    if (categoryOverlay) categoryOverlay.style.display = 'flex';
+  }
+
+  function closeCategoryModal() {
+    if (categoryOverlay) categoryOverlay.style.display = 'none';
+    if (noteCategorySelect && currentNoteId) {
+      const note = getNoteById(currentNoteId);
+      const isRemoteReadOnly = !!(note && note.remote && note.remote.readonly);
+      noteCategorySelect.disabled = isRemoteReadOnly;
+    }
+  }
+
+  async function applyCategoryChange() {
+    if (!currentNoteId) return;
+    const note = getNoteById(currentNoteId);
+    if (!note) return;
+
+    const isRemoteReadOnly = !!(note.remote && note.remote.readonly);
+    if (isRemoteReadOnly) {
+      closeCategoryModal();
+      return;
+    }
+
+    const raw = categoryInput ? categoryInput.value : '';
+    const newCategory = (raw || '').trim();
+    const finalCategory = newCategory ? newCategory : '';
+
+    note.category = finalCategory;
+    if (note.remote) {
+      note.remote.category = finalCategory;
+    }
+    note.updated = Date.now();
+
+    await saveNotes();
+    buildCategoryOptions();
+    buildNoteCategoryDropdownOptions();
+    if (noteCategorySelect) {
+      noteCategorySelect.value = finalCategory ? finalCategory : '__empty__';
+    }
+    renderList();
+
+    closeCategoryModal();
+
+    if (syncEnabled && hasCreds) {
+      await syncNoteToNextcloud(currentNoteId);
+    }
   }
 
   function debouncedSave() {
@@ -637,6 +1014,8 @@
       id: 'nc-' + remote.id,
       title: remote.title || '',
       content: remote.content || '',
+      category: remote.category || '',
+      tags: [],
       created: modifiedMs,
       updated: modifiedMs,
       remote: {
@@ -683,7 +1062,7 @@
     updateSyncStatus('Syncing…');
 
     if (!note.remote) {
-      const resp = await sendNcMessage('ncCreateNote', { title: note.title, content: note.content });
+      const resp = await sendNcMessage('ncCreateNote', { title: note.title, content: note.content, category: note.category || '' });
       if (resp && resp.ok) {
         const created = resp.note;
         const modifiedMs = (created.modified ? created.modified * 1000 : Date.now());
@@ -695,6 +1074,7 @@
           category: created.category || '',
           favorite: !!created.favorite
         };
+        note.category = created.category || '';
         note.updated = modifiedMs;
         await saveNotes();
         updateSyncStatus();
@@ -707,8 +1087,8 @@
         return;
       }
 
-      console.error('[Nextcloud Notes] Create failed', resp);
-      if (resp && typeof resp.error !== 'undefined') lastSyncErrorRaw = resp.error;
+      console.error('[Nextcloud Notes] Create failed:', syncFailureDetail(resp) || '(no detail)', resp);
+      lastSyncErrorRaw = syncFailureDetail(resp);
       updateSyncStatus('Sync failed' + formatSyncError(resp));
       return;
     }
@@ -717,7 +1097,8 @@
       noteId: note.remote.id,
       title: note.title,
       content: note.content,
-      etag: note.remote.etag
+      etag: note.remote.etag,
+      category: note.category || ''
     });
 
     if (resp && resp.ok) {
@@ -728,6 +1109,7 @@
       note.remote.modified = updated.modified || note.remote.modified;
       note.remote.category = updated.category || note.remote.category;
       note.remote.favorite = !!updated.favorite;
+      note.category = updated.category || note.category || '';
       await saveNotes();
       updateSyncStatus();
       return;
@@ -739,8 +1121,8 @@
       return;
     }
 
-    console.error('[Nextcloud Notes] Update failed', { noteId, resp });
-    if (resp && typeof resp.error !== 'undefined') lastSyncErrorRaw = resp.error;
+    console.error('[Nextcloud Notes] Update failed:', syncFailureDetail(resp) || '(no detail)', { noteId, resp });
+    lastSyncErrorRaw = syncFailureDetail(resp);
     updateSyncStatus('Sync failed' + formatSyncError(resp));
   }
 
@@ -748,8 +1130,8 @@
     updateSyncStatus('Fetching…');
     const resp = await sendNcMessage('ncFetchNotes', { chunkSize: 0 });
     if (!resp || !resp.ok) {
-      console.error('[Nextcloud Notes] Fetch failed', resp);
-      if (resp && typeof resp.error !== 'undefined') lastSyncErrorRaw = resp.error;
+      console.error('[Nextcloud Notes] Fetch failed:', syncFailureDetail(resp) || '(no detail)', resp);
+      lastSyncErrorRaw = syncFailureDetail(resp);
       updateSyncStatus('Sync failed' + formatSyncError(resp));
       return { ok: false, error: resp && resp.error ? resp.error : 'Failed to fetch notes.' };
     }
@@ -770,10 +1152,13 @@
       mapped.forEach(rn => {
         const existing = byRemoteId.get(rn.remote.id);
         if (existing) {
+          const keepTags = existing.tags || [];
           existing.title = rn.title;
           existing.content = rn.content;
           existing.updated = rn.updated;
           existing.remote = rn.remote;
+          existing.category = rn.category || '';
+          existing.tags = keepTags;
         } else {
           notes.unshift(rn);
         }
@@ -782,6 +1167,8 @@
 
     await saveNotes();
     buildCategoryOptions();
+    buildNoteCategoryDropdownOptions();
+    updateNoteCategorySelectAppearance();
     renderList();
     updateSyncStatus();
     return { ok: true };
@@ -969,14 +1356,119 @@
   noteEditor.addEventListener('input', function() { debouncedSave(); updateWordCount(); });
   searchInput.addEventListener('input', function() {
     searchQuery = searchInput.value.toLowerCase().trim();
+    buildTagSuggestions(searchInput.value.trim());
     renderList();
   });
+  searchInput.addEventListener('blur', function() {
+    setTimeout(function() {
+      if (tagSuggestions) tagSuggestions.classList.add('hidden');
+    }, 200);
+  });
+
+  if (tagInput) {
+    tagInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ',') {
+        e.preventDefault();
+        const raw = tagInput.value.replace(/[,#\s]+/g, ' ').trim();
+        if (!raw) return;
+        const tag = raw.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+        if (!tag) return;
+        const note = getNoteById(currentNoteId);
+        if (!note || (note.remote && note.remote.readonly)) return;
+        note.tags = note.tags || [];
+        if (!note.tags.includes(tag)) {
+          note.tags.push(tag);
+          renderTagChips(note.tags);
+          debouncedSave();
+        }
+        tagInput.value = '';
+      }
+      if (e.key === 'Backspace' && tagInput.value === '') {
+        const note = getNoteById(currentNoteId);
+        if (note && note.tags && note.tags.length > 0 && !(note.remote && note.remote.readonly)) {
+          note.tags.pop();
+          renderTagChips(note.tags);
+          debouncedSave();
+        }
+      }
+    });
+  }
 
   if (categorySelect) {
     categorySelect.addEventListener('change', async () => {
       categoryFilter = categorySelect.value;
       await chrome.storage.local.set({ [STORAGE_CATEGORY_FILTER_KEY]: categoryFilter });
       renderList();
+    });
+  }
+  if (noteCategorySelect) {
+    noteCategorySelect.addEventListener('change', async () => {
+      if (!currentNoteId) return;
+      const val = noteCategorySelect.value;
+
+      if (val === '__custom__') {
+        // Revert selection so the dropdown reflects the current note's real category.
+        const note = getNoteById(currentNoteId);
+        const cat = note ? getNoteCategory(note) : '';
+        noteCategorySelect.value = cat ? cat : '__empty__';
+        openCategoryModal();
+        return;
+      }
+
+      const newCategory = val === '__empty__' ? '' : val;
+      // Avoid redundant updates.
+      const note = getNoteById(currentNoteId);
+      const currentCategory = note ? getNoteCategory(note) : '';
+      if (newCategory === currentCategory) {
+        noteCategorySelect.value = newCategory ? newCategory : '__empty__';
+        return;
+      }
+
+      // Apply immediately (local + optional sync).
+      const isRemoteReadOnly = !!(note && note.remote && note.remote.readonly);
+      if (isRemoteReadOnly) {
+        const currentCat = note ? getNoteCategory(note) : '';
+        noteCategorySelect.value = currentCat ? currentCat : '__empty__';
+        return;
+      }
+
+      note.category = newCategory;
+      if (note.remote) note.remote.category = newCategory;
+      note.updated = Date.now();
+      await saveNotes();
+
+      buildCategoryOptions();
+      buildNoteCategoryDropdownOptions();
+      renderList();
+      closeCategoryModal();
+
+      if (syncEnabled && hasCreds) {
+        await syncNoteToNextcloud(currentNoteId);
+      }
+    });
+  }
+
+  if (btnCategoryCancel) btnCategoryCancel.addEventListener('click', closeCategoryModal);
+  if (btnCategoryClear) {
+    btnCategoryClear.addEventListener('click', () => {
+      categoryModalValue = '';
+      if (categoryInput) categoryInput.value = '';
+    });
+  }
+  if (btnCategoryApply) btnCategoryApply.addEventListener('click', async () => {
+    await applyCategoryChange();
+  });
+
+  if (categoryInput) {
+    categoryInput.addEventListener('input', () => {
+      categoryModalValue = (categoryInput.value || '').trim();
+      if (categoryModalValue === '') categoryModalValue = '';
+    });
+  }
+
+  if (categoryOverlay) {
+    categoryOverlay.addEventListener('click', e => {
+      if (e.target === categoryOverlay) closeCategoryModal();
     });
   }
 
@@ -1050,11 +1542,38 @@
     }
   }
 
-  function formatSyncError(resp) {
-    const err = resp && typeof resp.error !== 'undefined' ? resp.error : '';
-    if (!err) return '';
+  /** Always a plain string (never [object Object] in UI / clipboard). */
+  function syncErrorToPlainString(v) {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
 
-    const raw = typeof err === 'string' ? err : JSON.stringify(err);
+  function syncFailureDetail(resp) {
+    if (!resp) return '';
+    const fromErr = syncErrorToPlainString(resp.error);
+    if (fromErr) return fromErr;
+    if (resp.status != null) return 'HTTP ' + resp.status;
+    if (resp.code) return String(resp.code);
+    return '';
+  }
+
+  function formatSyncError(resp) {
+    if (!resp) return '';
+    let err = typeof resp.error !== 'undefined' ? resp.error : '';
+    const plain = syncErrorToPlainString(err);
+    if (!plain) {
+      if (resp.status != null) return ': HTTP ' + resp.status;
+      if (resp.code) return ': ' + String(resp.code);
+      return '';
+    }
+
+    const raw = typeof err === 'string' ? err : plain;
     const compact = raw.replace(/\s+/g, ' ').trim();
 
     // If Nextcloud returns the current note JSON on HTTP 412, translate it into a concise message.
@@ -1112,6 +1631,7 @@
   async function init() {
     loadTheme();
     await loadAccentColor();
+    await loadEditorPrefs();
     await loadNotes();
     await refreshCredsAndSyncPref();
 
@@ -1121,6 +1641,8 @@
     }
 
     buildCategoryOptions();
+    buildNoteCategoryDropdownOptions();
+    renderActiveFilters();
     renderList();
     showView('list');
     updateSyncStatus();
