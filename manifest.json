@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nextcloud Notes",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Markdown notes with optional Nextcloud syncing (Scratchpad-style sidebar).",
   "permissions": ["storage", "sidePanel"],
   "host_permissions": ["<all_urls>"],
@@ -17,7 +17,6 @@
   "background": {
     "service_worker": "background.js"
   },
-  "options_page": "options.html",
   "side_panel": {
     "default_path": "sidepanel.html"
   },

@@ -14,11 +14,13 @@
   let lastSyncErrorRaw = '';
   let categoryModalValue = '';
   let activeTagFilters = [];
+  let importPendingFiles = [];
 
   // ── DOM refs ────────────────────────────────────────────────────────
   const html = document.documentElement;
   const viewList = document.getElementById('view-list');
   const viewEditor = document.getElementById('view-editor');
+  const viewSettings = document.getElementById('view-settings');
   const notesList = document.getElementById('notes-list');
   const emptyState = document.getElementById('empty-state');
   const searchInput = document.getElementById('search-input');
@@ -54,6 +56,16 @@
   const noteCountEl = document.getElementById('note-count');
   const tagsList = document.getElementById('tags-list');
   const tagInput = document.getElementById('tag-input');
+
+  const btnSettingsBack = document.getElementById('btn-settings-back');
+  const settingsUrl = document.getElementById('settings-url');
+  const settingsUsername = document.getElementById('settings-username');
+  const settingsPassword = document.getElementById('settings-password');
+  const settingsEnableSync = document.getElementById('settings-enable-sync');
+  const settingsNcStatus = document.getElementById('settings-nc-status');
+  const btnSettingsSave = document.getElementById('btn-settings-save');
+  const btnSettingsTest = document.getElementById('btn-settings-test');
+  const btnSettingsTheme = document.getElementById('btn-settings-theme');
 
   // ── Storage keys ────────────────────────────────────────────────────
   const STORAGE_NOTES_KEY = 'nn_notes';
@@ -98,6 +110,8 @@
     const next = current === 'dark' ? 'light' : 'dark';
     applyTheme(next);
     chrome.storage.local.set({ nn_theme: next });
+    syncAppearanceColorPickersToTheme();
+    updateAppearancePreviewDemo();
   }
 
   btnTheme.addEventListener('click', toggleTheme);
@@ -155,6 +169,7 @@
     if (changes[STORAGE_PREFS_KEY]) {
       editorPrefs = { ...PREFS_DEFAULTS, ...(changes[STORAGE_PREFS_KEY].newValue || {}) };
       applyEditorPrefs();
+      updateAppearancePreviewDemo();
     }
   });
 
@@ -182,16 +197,433 @@
     applyEditorPrefs();
   }
 
-  function openOptionsPage() {
-    if (chrome.runtime && chrome.runtime.openOptionsPage) {
-      chrome.runtime.openOptionsPage();
-      return;
-    }
-    const url = chrome.runtime.getURL('options.html');
-    window.open(url, '_blank');
+  function slugify(s) {
+    return String(s || '').replace(/[^a-z0-9_\-\s]/gi, '').replace(/\s+/g, '-').toLowerCase() || 'note';
   }
 
-  if (btnSettings) btnSettings.addEventListener('click', openOptionsPage);
+  function toast(msg) {
+    const el = document.createElement('div');
+    el.className = 'settings-toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2200);
+  }
+
+  function syncAppearanceColorPickersToTheme() {
+    const theme = html.getAttribute('data-theme') || 'dark';
+    const oec = document.getElementById('opt-editor-color');
+    const opc = document.getElementById('opt-preview-color');
+    if (oec && !editorPrefs.editorColor) {
+      oec.value = theme === 'dark' ? '#e8e8ee' : '#1a1916';
+    }
+    if (opc && !editorPrefs.previewColor) {
+      opc.value = theme === 'dark' ? '#e8e8ee' : '#1a1916';
+    }
+  }
+
+  function updateAppearancePreviewDemo() {
+    const demo = document.getElementById('options-preview-demo');
+    if (!demo) return;
+    const theme = html.getAttribute('data-theme') || 'dark';
+    const pc = editorPrefs.previewColor || (theme === 'dark' ? '#e8e8ee' : '#1a1916');
+    demo.style.fontFamily = '\'' + editorPrefs.previewFont + '\', sans-serif';
+    demo.style.fontSize = editorPrefs.previewSize + 'px';
+    demo.style.color = pc;
+  }
+
+  function persistEditorPrefs() {
+    return chrome.storage.local.set({ [STORAGE_PREFS_KEY]: editorPrefs });
+  }
+
+  async function populateAppearanceForm() {
+    const r = await chrome.storage.local.get([STORAGE_PREFS_KEY, STORAGE_ACCENT_KEY]);
+    editorPrefs = { ...PREFS_DEFAULTS, ...(r[STORAGE_PREFS_KEY] || {}) };
+    applyEditorPrefs();
+    const theme = html.getAttribute('data-theme') || 'dark';
+
+    const ef = document.getElementById('opt-editor-font');
+    if (ef) ef.value = editorPrefs.editorFont;
+    const pf = document.getElementById('opt-preview-font');
+    if (pf) pf.value = editorPrefs.previewFont;
+    const es = document.getElementById('opt-editor-size');
+    if (es) es.value = String(editorPrefs.editorSize);
+    const esv = document.getElementById('opt-editor-size-val');
+    if (esv) esv.textContent = editorPrefs.editorSize + 'px';
+    const ps = document.getElementById('opt-preview-size');
+    if (ps) ps.value = String(editorPrefs.previewSize);
+    const psv = document.getElementById('opt-preview-size-val');
+    if (psv) psv.textContent = editorPrefs.previewSize + 'px';
+
+    const oac = document.getElementById('opt-accent-color');
+    if (oac) oac.value = r[STORAGE_ACCENT_KEY] || '#0082C9';
+    const oec = document.getElementById('opt-editor-color');
+    if (oec) oec.value = editorPrefs.editorColor || (theme === 'dark' ? '#e8e8ee' : '#1a1916');
+    const opc = document.getElementById('opt-preview-color');
+    if (opc) opc.value = editorPrefs.previewColor || (theme === 'dark' ? '#e8e8ee' : '#1a1916');
+
+    updateAppearancePreviewDemo();
+  }
+
+  function wireSettingsAppearanceAndData() {
+    if (btnSettingsTheme) {
+      btnSettingsTheme.addEventListener('click', () => toggleTheme());
+    }
+
+    const onPrefChange = () => {
+      void persistEditorPrefs();
+      applyEditorPrefs();
+      updateAppearancePreviewDemo();
+    };
+
+    const ef = document.getElementById('opt-editor-font');
+    if (ef) {
+      ef.addEventListener('change', e => {
+        editorPrefs.editorFont = e.target.value;
+        onPrefChange();
+      });
+    }
+    const pf = document.getElementById('opt-preview-font');
+    if (pf) {
+      pf.addEventListener('change', e => {
+        editorPrefs.previewFont = e.target.value;
+        onPrefChange();
+      });
+    }
+    const es = document.getElementById('opt-editor-size');
+    if (es) {
+      es.addEventListener('input', e => {
+        editorPrefs.editorSize = +e.target.value;
+        const esv = document.getElementById('opt-editor-size-val');
+        if (esv) esv.textContent = editorPrefs.editorSize + 'px';
+        onPrefChange();
+      });
+    }
+    const ps = document.getElementById('opt-preview-size');
+    if (ps) {
+      ps.addEventListener('input', e => {
+        editorPrefs.previewSize = +e.target.value;
+        const psv = document.getElementById('opt-preview-size-val');
+        if (psv) psv.textContent = editorPrefs.previewSize + 'px';
+        onPrefChange();
+      });
+    }
+    const oec = document.getElementById('opt-editor-color');
+    if (oec) {
+      oec.addEventListener('input', e => {
+        editorPrefs.editorColor = e.target.value;
+        onPrefChange();
+      });
+    }
+    const opc = document.getElementById('opt-preview-color');
+    if (opc) {
+      opc.addEventListener('input', e => {
+        editorPrefs.previewColor = e.target.value;
+        onPrefChange();
+      });
+    }
+    const oac = document.getElementById('opt-accent-color');
+    if (oac) {
+      oac.addEventListener('input', e => {
+        const hex = e.target.value;
+        chrome.storage.local.set({ [STORAGE_ACCENT_KEY]: hex });
+        setAccentColor(hex);
+      });
+    }
+
+    document.querySelectorAll('#view-settings .btn-reset-color').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const target = btn.getAttribute('data-target');
+        const theme = html.getAttribute('data-theme') || 'dark';
+        const val = theme === 'dark' ? btn.getAttribute('data-dark') : btn.getAttribute('data-light');
+        const el = document.getElementById(target);
+        if (!el || !val) return;
+        el.value = val;
+        if (target === 'opt-editor-color') editorPrefs.editorColor = null;
+        if (target === 'opt-preview-color') editorPrefs.previewColor = null;
+        if (target === 'opt-accent-color') {
+          chrome.storage.local.set({ [STORAGE_ACCENT_KEY]: val });
+          setAccentColor(val);
+        } else {
+          void persistEditorPrefs();
+          applyEditorPrefs();
+        }
+        updateAppearancePreviewDemo();
+      });
+    });
+
+    const btnResetPrefs = document.getElementById('btn-reset-prefs');
+    if (btnResetPrefs) {
+      btnResetPrefs.addEventListener('click', async () => {
+        editorPrefs = { ...PREFS_DEFAULTS };
+        await persistEditorPrefs();
+        const defAccent = '#0082C9';
+        await chrome.storage.local.set({ [STORAGE_ACCENT_KEY]: defAccent });
+        setAccentColor(defAccent);
+        syncAppearanceColorPickersToTheme();
+        await populateAppearanceForm();
+        toast('Typography and colours reset');
+      });
+    }
+
+    const btnOpenImport = document.getElementById('btn-open-import');
+    const btnOpenExport = document.getElementById('btn-open-export');
+    if (btnOpenImport) btnOpenImport.addEventListener('click', () => openImportModal());
+    if (btnOpenExport) btnOpenExport.addEventListener('click', () => openExportModal());
+
+    const btnExportClose = document.getElementById('btn-export-close');
+    const modalExport = document.getElementById('modal-export');
+    if (btnExportClose && modalExport) {
+      btnExportClose.addEventListener('click', () => {
+        modalExport.classList.add('hidden');
+        modalExport.setAttribute('aria-hidden', 'true');
+      });
+      modalExport.addEventListener('click', e => {
+        if (e.target === modalExport) {
+          modalExport.classList.add('hidden');
+          modalExport.setAttribute('aria-hidden', 'true');
+        }
+      });
+    }
+    const btnExportSelectAll = document.getElementById('btn-export-select-all');
+    const btnExportDeselect = document.getElementById('btn-export-deselect');
+    const btnExportRun = document.getElementById('btn-export-run');
+    if (btnExportSelectAll) {
+      btnExportSelectAll.addEventListener('click', () => {
+        document.querySelectorAll('#export-list input').forEach(cb => { cb.checked = true; });
+        updateExportCount();
+      });
+    }
+    if (btnExportDeselect) {
+      btnExportDeselect.addEventListener('click', () => {
+        document.querySelectorAll('#export-list input').forEach(cb => { cb.checked = false; });
+        updateExportCount();
+      });
+    }
+    if (btnExportRun) btnExportRun.addEventListener('click', () => void runExportFromModal());
+
+    const btnImportClose = document.getElementById('btn-import-close');
+    const modalImport = document.getElementById('modal-import');
+    if (btnImportClose && modalImport) {
+      btnImportClose.addEventListener('click', () => {
+        modalImport.classList.add('hidden');
+        modalImport.setAttribute('aria-hidden', 'true');
+      });
+      modalImport.addEventListener('click', e => {
+        if (e.target === modalImport) {
+          modalImport.classList.add('hidden');
+          modalImport.setAttribute('aria-hidden', 'true');
+        }
+      });
+    }
+    const importInput = document.getElementById('import-file-input');
+    if (importInput) importInput.addEventListener('change', e => handleImportFiles(e.target.files));
+    const dropZone = document.getElementById('import-drop-zone');
+    if (dropZone) {
+      dropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+      });
+      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+      dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        handleImportFiles(e.dataTransfer.files);
+      });
+    }
+    const btnImportRun = document.getElementById('btn-import-run');
+    if (btnImportRun) btnImportRun.addEventListener('click', () => void runImportFromModal());
+  }
+
+  function openExportModal() {
+    const modal = document.getElementById('modal-export');
+    const list = document.getElementById('export-list');
+    if (!modal || !list) return;
+    list.innerHTML = '';
+    const sorted = [...notes].sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    sorted.forEach(note => {
+      const item = document.createElement('div');
+      item.className = 'modal-list-item';
+      item.dataset.id = note.id;
+      item.innerHTML =
+        '<input type="checkbox" checked />' +
+        '<span class="modal-list-item-title">' + escapeHtml(note.title || 'Untitled') + '</span>' +
+        '<span class="modal-list-item-meta">' + formatDate(note.updated) + '</span>';
+      const cb = item.querySelector('input');
+      cb.addEventListener('change', updateExportCount);
+      item.addEventListener('click', e => {
+        if (e.target !== cb) {
+          cb.checked = !cb.checked;
+          updateExportCount();
+        }
+      });
+      list.appendChild(item);
+    });
+    updateExportCount();
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function updateExportCount() {
+    const list = document.getElementById('export-list');
+    const countEl = document.getElementById('export-selected-count');
+    const runBtn = document.getElementById('btn-export-run');
+    if (!list || !countEl || !runBtn) return;
+    const checked = list.querySelectorAll('input:checked').length;
+    countEl.textContent = checked + ' selected';
+    runBtn.disabled = checked === 0;
+  }
+
+  async function runExportFromModal() {
+    const list = document.getElementById('export-list');
+    const modal = document.getElementById('modal-export');
+    const anchor = document.getElementById('dl-anchor');
+    if (!list || !modal || !anchor) return;
+    const items = list.querySelectorAll('.modal-list-item');
+    const selected = [];
+    items.forEach(item => {
+      if (item.querySelector('input').checked) {
+        const note = notes.find(n => n.id === item.dataset.id);
+        if (note) selected.push(note);
+      }
+    });
+    if (selected.length === 0) return;
+
+    if (selected.length === 1) {
+      const note = selected[0];
+      const content = (note.title ? '# ' + note.title + '\n\n' : '') + (note.content || '');
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      anchor.href = url;
+      anchor.download = slugify(note.title || 'note') + '.txt';
+      anchor.click();
+      URL.revokeObjectURL(url);
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden', 'true');
+      toast('Exported 1 note');
+      return;
+    }
+
+    if (typeof JSZip !== 'undefined') {
+      const zip = new JSZip();
+      const usedNames = {};
+      selected.forEach(note => {
+        let name = slugify(note.title || 'note');
+        if (usedNames[name]) {
+          usedNames[name]++;
+          name += '-' + usedNames[name];
+        } else usedNames[name] = 1;
+        const content = (note.title ? '# ' + note.title + '\n\n' : '') + (note.content || '');
+        zip.file(name + '.txt', content);
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      anchor.href = url;
+      anchor.download = 'nextcloud-notes-export.zip';
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } else {
+      for (const note of selected) {
+        const content = (note.title ? '# ' + note.title + '\n\n' : '') + (note.content || '');
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        anchor.href = url;
+        anchor.download = slugify(note.title || 'note') + '.txt';
+        anchor.click();
+        URL.revokeObjectURL(url);
+        await new Promise(r => setTimeout(r, 150));
+      }
+    }
+
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    toast('Exported ' + selected.length + ' notes');
+  }
+
+  function openImportModal() {
+    importPendingFiles = [];
+    const list = document.getElementById('import-preview-list');
+    const modal = document.getElementById('modal-import');
+    const countEl = document.getElementById('import-file-count');
+    const runBtn = document.getElementById('btn-import-run');
+    const input = document.getElementById('import-file-input');
+    if (!modal) return;
+    if (list) {
+      list.innerHTML = '';
+      list.classList.add('hidden');
+    }
+    if (countEl) countEl.textContent = '';
+    if (runBtn) runBtn.disabled = true;
+    if (input) input.value = '';
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function handleImportFiles(files) {
+    importPendingFiles = [...files].filter(f => /\.(txt|md)$/i.test(f.name));
+    const list = document.getElementById('import-preview-list');
+    const countEl = document.getElementById('import-file-count');
+    const runBtn = document.getElementById('btn-import-run');
+    if (!list) return;
+    list.innerHTML = '';
+    if (importPendingFiles.length === 0) {
+      if (countEl) countEl.textContent = 'No .txt or .md files selected';
+      if (runBtn) runBtn.disabled = true;
+      list.classList.add('hidden');
+      return;
+    }
+    importPendingFiles.forEach(file => {
+      const item = document.createElement('div');
+      item.className = 'modal-list-item';
+      item.style.cursor = 'default';
+      item.innerHTML =
+        '<span class="modal-list-item-title">' + escapeHtml(file.name) + '</span>' +
+        '<span class="modal-list-item-meta">' + (file.size / 1024).toFixed(1) + ' KB</span>';
+      list.appendChild(item);
+    });
+    list.classList.remove('hidden');
+    if (countEl) {
+      countEl.textContent =
+        importPendingFiles.length + ' file' + (importPendingFiles.length !== 1 ? 's' : '') + ' ready';
+    }
+    if (runBtn) runBtn.disabled = false;
+  }
+
+  async function runImportFromModal() {
+    if (importPendingFiles.length === 0) return;
+    const modal = document.getElementById('modal-import');
+    let imported = 0;
+    for (const file of importPendingFiles) {
+      const text = await file.text();
+      const h1Match = text.match(/^#\s+(.+)/m);
+      const title = h1Match ? h1Match[1].trim() : file.name.replace(/\.(txt|md)$/i, '');
+      const content = h1Match ? text.replace(/^#\s+.+\n?/, '').trim() : text;
+      const note = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + imported,
+        title,
+        content,
+        category: '',
+        tags: [],
+        created: Date.now(),
+        updated: Date.now(),
+        remote: null
+      };
+      notes.unshift(note);
+      imported++;
+    }
+    await saveNotes();
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    toast('Imported ' + imported + ' note' + (imported !== 1 ? 's' : ''));
+    importPendingFiles = [];
+    buildCategoryOptions();
+    buildNoteCategoryDropdownOptions();
+    renderActiveFilters();
+    renderList();
+  }
+
+  if (btnSettings) btnSettings.addEventListener('click', () => void openSettingsView());
 
   // ── Sync UI ──────────────────────────────────────────────────────────
   function updateSyncStatus(text) {
@@ -361,6 +793,97 @@
     });
   }
 
+  // ── In-panel settings (Nextcloud) ─────────────────────────────────
+  async function populateSettingsForm() {
+    await refreshCredsAndSyncPref();
+    const data = await chrome.storage.sync.get(['url', 'username', 'password']);
+    if (settingsUrl) settingsUrl.value = (data.url || '').trim().replace(/\/$/, '');
+    if (settingsUsername) settingsUsername.value = (data.username || '').trim();
+    if (settingsPassword) settingsPassword.value = (data.password || '').trim();
+    if (settingsEnableSync) {
+      const pref = await chrome.storage.local.get([STORAGE_SYNC_ENABLED_KEY]);
+      const stored = pref[STORAGE_SYNC_ENABLED_KEY];
+      if (typeof stored === 'boolean') {
+        settingsEnableSync.checked = stored;
+      } else {
+        settingsEnableSync.checked = !!hasCreds;
+      }
+    }
+    if (settingsNcStatus) {
+      settingsNcStatus.textContent = '';
+      settingsNcStatus.className = 'settings-status';
+    }
+  }
+
+  async function openSettingsView() {
+    await populateSettingsForm();
+    await populateAppearanceForm();
+    showView('settings');
+  }
+
+  function setSettingsStatus(msg, kind) {
+    if (!settingsNcStatus) return;
+    settingsNcStatus.textContent = msg || '';
+    settingsNcStatus.className = 'settings-status' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+  }
+
+  async function saveSettingsConnection() {
+    const url = settingsUrl ? (settingsUrl.value || '').trim().replace(/\/$/, '') : '';
+    const username = settingsUsername ? (settingsUsername.value || '').trim() : '';
+    const password = settingsPassword ? (settingsPassword.value || '').trim() : '';
+    await chrome.storage.sync.set({ url, username, password });
+    await refreshCredsAndSyncPref();
+    if (url && username && password) {
+      setSettingsStatus('Saved.', 'ok');
+    } else {
+      setSettingsStatus('Saved. Add URL and credentials to enable cloud sync.', '');
+    }
+    updateSyncStatus();
+  }
+
+  async function testSettingsConnection() {
+    const url = settingsUrl ? (settingsUrl.value || '').trim().replace(/\/$/, '') : '';
+    const username = settingsUsername ? (settingsUsername.value || '').trim() : '';
+    const password = settingsPassword ? (settingsPassword.value || '').trim() : '';
+    if (!url || !username || !password) {
+      setSettingsStatus('Fill server URL, username, and password first.', 'err');
+      return;
+    }
+    await chrome.storage.sync.set({ url, username, password });
+    updateSyncStatus('Connecting…');
+    const resp = await sendNcMessage('ncFetchNotes', { chunkSize: 1 });
+    await refreshCredsAndSyncPref();
+    updateSyncStatus();
+    if (resp && resp.ok) {
+      setSettingsStatus('Connection OK.', 'ok');
+    } else {
+      let detail =
+        resp && typeof resp.error !== 'undefined'
+          ? typeof resp.error === 'string'
+            ? resp.error
+            : JSON.stringify(resp.error)
+          : 'Connection failed.';
+      if (detail.length > 220) detail = detail.slice(0, 220) + '…';
+      setSettingsStatus(detail, 'err');
+    }
+  }
+
+  if (btnSettingsBack) {
+    btnSettingsBack.addEventListener('click', () => showView('list'));
+  }
+  if (btnSettingsSave) {
+    btnSettingsSave.addEventListener('click', () => void saveSettingsConnection());
+  }
+  if (btnSettingsTest) {
+    btnSettingsTest.addEventListener('click', () => void testSettingsConnection());
+  }
+  if (settingsEnableSync) {
+    settingsEnableSync.addEventListener('change', async () => {
+      await chrome.storage.local.set({ [STORAGE_SYNC_ENABLED_KEY]: settingsEnableSync.checked });
+      await refreshCredsAndSyncPref();
+      updateSyncStatus();
+    });
+  }
   // ── Storage ──────────────────────────────────────────────────────────
   function loadNotes() {
     return new Promise(resolve => {
@@ -760,6 +1283,7 @@
   function showView(name) {
     viewList.classList.toggle('active', name === 'list');
     viewEditor.classList.toggle('active', name === 'editor');
+    if (viewSettings) viewSettings.classList.toggle('active', name === 'settings');
   }
 
   function openNote(id) {
@@ -1632,6 +2156,8 @@
     loadTheme();
     await loadAccentColor();
     await loadEditorPrefs();
+    updateAppearancePreviewDemo();
+    wireSettingsAppearanceAndData();
     await loadNotes();
     await refreshCredsAndSyncPref();
 

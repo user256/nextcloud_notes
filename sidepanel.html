@@ -44,7 +44,7 @@
           New
         </button>
 
-        <button id="btn-settings" class="btn-icon" title="Settings (Nextcloud sync)">
+        <button id="btn-settings" class="btn-icon" title="Settings">
           <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
             <path d="M7.5 10.1a2.6 2.6 0 1 0 0-5.2 2.6 2.6 0 0 0 0 5.2Z" stroke="currentColor" stroke-width="1.4"/>
             <path d="M3.7 6.1 2.4 5.4l.9-1.6 1.4.3a4.6 4.6 0 0 1 1.1-.7l.2-1.4h2l.2 1.4c.4.2.7.4 1.1.7l1.4-.3.9 1.6-1.3.7c.1.4.1.8 0 1.2l1.3.7-.9 1.6-1.4-.3c-.3.3-.7.5-1.1.7l-.2 1.4h-2l-.2-1.4c-.4-.2-.7-.4-1.1-.7l-1.4.3-.9-1.6 1.3-.7a3.6 3.6 0 0 1 0-1.2Z" stroke="currentColor" stroke-width="1.0" stroke-linejoin="round" opacity="0.9"/>
@@ -197,6 +197,170 @@
     </div>
   </div>
 
+  <!-- SETTINGS VIEW (all options in-panel) -->
+  <div id="view-settings" class="view">
+    <header class="editor-header">
+      <button type="button" id="btn-settings-back" class="btn-icon" title="Back to notes">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <span class="editor-header-title">Settings</span>
+      <button type="button" id="btn-settings-theme" class="btn-settings-theme" title="Toggle light/dark mode">Theme</button>
+    </header>
+
+    <div class="settings-body">
+      <section class="settings-section">
+        <h3 class="settings-heading">Nextcloud</h3>
+        <p class="settings-hint">Connect to sync with the Notes app. You can use the extension fully offline.</p>
+
+        <div class="cred-grid settings-grid">
+          <div>
+            <label for="settings-url">Server URL</label>
+            <input type="url" id="settings-url" placeholder="https://cloud.example.com" autocomplete="off" />
+          </div>
+          <div>
+            <label for="settings-username">Username</label>
+            <input type="text" id="settings-username" placeholder="username" autocomplete="username" />
+          </div>
+          <div>
+            <label for="settings-password">Password or app password</label>
+            <input type="password" id="settings-password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+        </div>
+
+        <label class="settings-sync-row">
+          <input type="checkbox" id="settings-enable-sync" />
+          <span>Enable Nextcloud sync (auto-save notes to the server)</span>
+        </label>
+
+        <div class="settings-actions">
+          <button type="button" id="btn-settings-save" class="cred-btn cred-btn-primary">Save connection</button>
+          <button type="button" id="btn-settings-test" class="cred-btn cred-btn-secondary">Test connection</button>
+        </div>
+
+        <p id="settings-nc-status" class="settings-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="settings-section settings-section-muted">
+        <h3 class="settings-heading">Data</h3>
+        <p class="settings-hint">Backup or restore notes in this browser only (not the server).</p>
+        <div class="settings-data-actions">
+          <button type="button" id="btn-open-import" class="cred-btn cred-btn-secondary">Import notes…</button>
+          <button type="button" id="btn-open-export" class="cred-btn cred-btn-secondary">Export notes…</button>
+        </div>
+      </section>
+
+      <section class="settings-section settings-section-muted">
+        <h3 class="settings-heading">Typography</h3>
+        <label class="options-label" for="opt-editor-font">Editor font</label>
+        <select id="opt-editor-font" class="options-select">
+          <option value="JetBrains Mono">JetBrains Mono</option>
+          <option value="monospace">System monospace</option>
+          <option value="Courier New">Courier New</option>
+          <option value="DM Sans">DM Sans (proportional)</option>
+          <option value="Georgia">Georgia</option>
+        </select>
+        <label class="options-label" for="opt-preview-font">Preview font</label>
+        <select id="opt-preview-font" class="options-select">
+          <option value="DM Sans">DM Sans</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Fraunces">Fraunces (serif)</option>
+          <option value="system-ui">System UI</option>
+          <option value="JetBrains Mono">JetBrains Mono</option>
+        </select>
+        <label class="options-label" for="opt-editor-size">Editor font size</label>
+        <div class="options-slider-row">
+          <input type="range" id="opt-editor-size" min="10" max="18" step="1" value="12" class="options-slider" />
+          <span id="opt-editor-size-val" class="options-slider-val">12px</span>
+        </div>
+        <label class="options-label" for="opt-preview-size">Preview font size</label>
+        <div class="options-slider-row">
+          <input type="range" id="opt-preview-size" min="11" max="20" step="1" value="13" class="options-slider" />
+          <span id="opt-preview-size-val" class="options-slider-val">13px</span>
+        </div>
+      </section>
+
+      <section class="settings-section settings-section-muted">
+        <h3 class="settings-heading">Colours</h3>
+        <label class="options-label">Accent (buttons, highlights)</label>
+        <div class="options-color-row">
+          <input type="color" id="opt-accent-color" class="options-color" value="#0082C9" />
+          <button type="button" class="btn-reset-color" data-target="opt-accent-color" data-dark="#0082C9" data-light="#006aa3">Reset</button>
+        </div>
+        <label class="options-label">Editor text</label>
+        <div class="options-color-row">
+          <input type="color" id="opt-editor-color" class="options-color" value="#e8e8ee" />
+          <button type="button" class="btn-reset-color" data-target="opt-editor-color" data-dark="#e8e8ee" data-light="#1a1916">Reset</button>
+        </div>
+        <label class="options-label">Preview text</label>
+        <div class="options-color-row">
+          <input type="color" id="opt-preview-color" class="options-color" value="#e8e8ee" />
+          <button type="button" class="btn-reset-color" data-target="opt-preview-color" data-dark="#e8e8ee" data-light="#1a1916">Reset</button>
+        </div>
+        <h4 class="settings-subheading">Preview</h4>
+        <div class="options-preview-box" id="options-preview-demo">
+          <p><strong>Bold text</strong> and <em>italic text</em></p>
+          <p>Normal paragraph with <code>inline code</code> sample.</p>
+          <h3>A heading at H3 size</h3>
+          <p>The quick brown fox jumps over the lazy dog.</p>
+        </div>
+        <div class="options-footer">
+          <button type="button" id="btn-reset-prefs" class="btn-reset-all">Reset typography &amp; colours</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Import / export modals -->
+  <div id="modal-export" class="modal-overlay hidden" aria-hidden="true">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="export-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="export-title">Export notes</h2>
+        <button type="button" class="modal-close" id="btn-export-close" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <p class="modal-sub">Select notes to export as <code>.txt</code> files (zipped if more than one).</p>
+      <div class="modal-actions-top">
+        <button type="button" id="btn-export-select-all" class="btn-sm">Select all</button>
+        <button type="button" id="btn-export-deselect" class="btn-sm">Deselect all</button>
+      </div>
+      <div id="export-list" class="modal-list"></div>
+      <div class="modal-footer">
+        <span id="export-selected-count" class="modal-count">0 selected</span>
+        <button type="button" id="btn-export-run" class="modal-btn-primary" disabled>Export selected</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-import" class="modal-overlay hidden" aria-hidden="true">
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="import-title">
+      <div class="modal-header">
+        <h2 class="modal-title" id="import-title">Import notes</h2>
+        <button type="button" class="modal-close" id="btn-import-close" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <p class="modal-sub">Choose <code>.txt</code> or <code>.md</code> files. Each becomes a local note (title from first <code>#</code> line or filename).</p>
+      <div id="import-drop-zone" class="import-drop-zone">
+        <p>Drop files here</p>
+        <span>or</span>
+        <label class="btn-sm import-browse-label">
+          Browse files
+          <input type="file" id="import-file-input" accept=".txt,.md" multiple />
+        </label>
+      </div>
+      <div id="import-preview-list" class="modal-list hidden"></div>
+      <div class="modal-footer">
+        <span id="import-file-count" class="modal-count"></span>
+        <button type="button" id="btn-import-run" class="modal-btn-primary" disabled>Import all</button>
+      </div>
+    </div>
+  </div>
+
+  <a id="dl-anchor" style="display:none" aria-hidden="true"></a>
+
   <!-- CATEGORY MODAL -->
   <div id="category-overlay" class="cred-overlay" style="display:none">
     <div class="cred-box category-box" role="dialog" aria-modal="true" aria-labelledby="category-title">
@@ -221,6 +385,7 @@
   </div>
 
   <script src="marked.min.js"></script>
+  <script src="jszip.min.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>
