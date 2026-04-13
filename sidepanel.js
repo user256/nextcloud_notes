@@ -85,6 +85,34 @@
   };
   let editorPrefs = { ...PREFS_DEFAULTS };
 
+  // ── Cross-browser storage wrappers ────────────────────────────────
+  function storageArea(area) {
+    if (typeof browser !== 'undefined' && browser.storage && browser.storage[area]) {
+      return browser.storage[area];
+    }
+    return chrome.storage[area];
+  }
+
+  function storageGet(area, keys) {
+    const sa = storageArea(area);
+    if (!sa) return Promise.resolve({});
+    if (typeof sa.get === 'function' && sa.get.length <= 1) {
+      return Promise.resolve(sa.get(keys)).then(v => v || {});
+    }
+    return new Promise(resolve => {
+      sa.get(keys, result => resolve(result || {}));
+    });
+  }
+
+  function storageSet(area, data) {
+    const sa = storageArea(area);
+    if (!sa) return Promise.resolve();
+    if (typeof sa.set === 'function' && sa.set.length <= 1) {
+      return Promise.resolve(sa.set(data));
+    }
+    return new Promise(resolve => sa.set(data, resolve));
+  }
+
   // ── Theme ────────────────────────────────────────────────────────────
   function applyTheme(theme) {
     html.setAttribute('data-theme', theme);
@@ -99,17 +127,16 @@
     }
   }
 
-  function loadTheme() {
-    chrome.storage.local.get(['nn_theme'], result => {
-      applyTheme(result.nn_theme || 'dark');
-    });
+  async function loadTheme() {
+    const result = await storageGet('local', ['nn_theme']);
+    applyTheme(result.nn_theme || 'dark');
   }
 
   function toggleTheme() {
     const current = html.getAttribute('data-theme');
     const next = current === 'dark' ? 'light' : 'dark';
     applyTheme(next);
-    chrome.storage.local.set({ nn_theme: next });
+    void storageSet('local', { nn_theme: next });
     syncAppearanceColorPickersToTheme();
     updateAppearancePreviewDemo();
   }
@@ -157,11 +184,16 @@
   }
 
   async function loadAccentColor() {
-    const result = await chrome.storage.local.get([STORAGE_ACCENT_KEY]);
+    const result = await storageGet('local', [STORAGE_ACCENT_KEY]);
     setAccentColor(result[STORAGE_ACCENT_KEY] || '#0082C9');
   }
 
-  chrome.storage.onChanged.addListener((changes, area) => {
+  const onChanged =
+    (typeof browser !== 'undefined' && browser.storage && browser.storage.onChanged)
+      ? browser.storage.onChanged
+      : chrome.storage.onChanged;
+
+  onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (changes[STORAGE_ACCENT_KEY]) {
       setAccentColor(changes[STORAGE_ACCENT_KEY].newValue);
@@ -170,6 +202,24 @@
       editorPrefs = { ...PREFS_DEFAULTS, ...(changes[STORAGE_PREFS_KEY].newValue || {}) };
       applyEditorPrefs();
       updateAppearancePreviewDemo();
+    }
+    if (changes[STORAGE_NOTES_KEY]) {
+      notes = Array.isArray(changes[STORAGE_NOTES_KEY].newValue) ? changes[STORAGE_NOTES_KEY].newValue : [];
+      // If the current note disappeared, go back to the list to avoid editing a ghost note.
+      if (currentNoteId && !notes.some(n => n.id === currentNoteId)) {
+        currentNoteId = null;
+        if (viewEditor) viewEditor.classList.remove('active');
+        showView('list');
+      }
+      // Refresh list UI (category dropdown + tag filters + note count).
+      buildCategoryOptions();
+      buildNoteCategoryDropdownOptions();
+      // Remove tag filters that no longer exist in the new dataset.
+      const allTags = getAllTags();
+      activeTagFilters = activeTagFilters.filter(t => allTags.includes(t));
+      renderActiveFilters();
+      renderTagChips(currentNoteId ? (getNoteById(currentNoteId)?.tags || []) : []);
+      renderList();
     }
   });
 
@@ -192,7 +242,7 @@
   }
 
   async function loadEditorPrefs() {
-    const r = await chrome.storage.local.get([STORAGE_PREFS_KEY]);
+    const r = await storageGet('local', [STORAGE_PREFS_KEY]);
     editorPrefs = { ...PREFS_DEFAULTS, ...(r[STORAGE_PREFS_KEY] || {}) };
     applyEditorPrefs();
   }
@@ -232,11 +282,11 @@
   }
 
   function persistEditorPrefs() {
-    return chrome.storage.local.set({ [STORAGE_PREFS_KEY]: editorPrefs });
+    return storageSet('local', { [STORAGE_PREFS_KEY]: editorPrefs });
   }
 
   async function populateAppearanceForm() {
-    const r = await chrome.storage.local.get([STORAGE_PREFS_KEY, STORAGE_ACCENT_KEY]);
+    const r = await storageGet('local', [STORAGE_PREFS_KEY, STORAGE_ACCENT_KEY]);
     editorPrefs = { ...PREFS_DEFAULTS, ...(r[STORAGE_PREFS_KEY] || {}) };
     applyEditorPrefs();
     const theme = html.getAttribute('data-theme') || 'dark';
@@ -325,7 +375,7 @@
     if (oac) {
       oac.addEventListener('input', e => {
         const hex = e.target.value;
-        chrome.storage.local.set({ [STORAGE_ACCENT_KEY]: hex });
+        void storageSet('local', { [STORAGE_ACCENT_KEY]: hex });
         setAccentColor(hex);
       });
     }
@@ -341,7 +391,7 @@
         if (target === 'opt-editor-color') editorPrefs.editorColor = null;
         if (target === 'opt-preview-color') editorPrefs.previewColor = null;
         if (target === 'opt-accent-color') {
-          chrome.storage.local.set({ [STORAGE_ACCENT_KEY]: val });
+          void storageSet('local', { [STORAGE_ACCENT_KEY]: val });
           setAccentColor(val);
         } else {
           void persistEditorPrefs();
@@ -357,7 +407,7 @@
         editorPrefs = { ...PREFS_DEFAULTS };
         await persistEditorPrefs();
         const defAccent = '#0082C9';
-        await chrome.storage.local.set({ [STORAGE_ACCENT_KEY]: defAccent });
+        await storageSet('local', { [STORAGE_ACCENT_KEY]: defAccent });
         setAccentColor(defAccent);
         syncAppearanceColorPickersToTheme();
         await populateAppearanceForm();
@@ -660,13 +710,13 @@
   }
 
   async function refreshCredsAndSyncPref() {
-    const data = await chrome.storage.sync.get(['url', 'username', 'password']);
+    const data = await storageGet('sync', ['url', 'username', 'password']);
     const baseUrl = (data.url || '').trim().replace(/\/$/, '');
     const username = (data.username || '').trim();
     const password = (data.password || '').trim();
     hasCreds = !!(baseUrl && username && password);
 
-    const pref = await chrome.storage.local.get([STORAGE_SYNC_ENABLED_KEY]);
+    const pref = await storageGet('local', [STORAGE_SYNC_ENABLED_KEY]);
     const stored = pref[STORAGE_SYNC_ENABLED_KEY];
 
     if (typeof stored === 'boolean') {
@@ -682,7 +732,7 @@
   async function ensureCredsForNextcloud({ defaultEnableSync }) {
     if (hasCreds) {
       syncEnabled = !!defaultEnableSync;
-      await chrome.storage.local.set({ [STORAGE_SYNC_ENABLED_KEY]: syncEnabled });
+      await storageSet('local', { [STORAGE_SYNC_ENABLED_KEY]: syncEnabled });
       updateSyncStatus();
       return true;
     }
@@ -691,14 +741,14 @@
     if (!result) return false;
 
     syncEnabled = !!result.enableSync;
-    await chrome.storage.local.set({ [STORAGE_SYNC_ENABLED_KEY]: syncEnabled });
+    await storageSet('local', { [STORAGE_SYNC_ENABLED_KEY]: syncEnabled });
     await refreshCredsAndSyncPref();
     // refreshCredsAndSyncPref may turn syncEnabled off if creds still invalid.
     return hasCreds && syncEnabled;
   }
 
   async function openCredModal({ defaultEnableSync }) {
-    const current = await chrome.storage.sync.get(['url', 'username', 'password']);
+    const current = await storageGet('sync', ['url', 'username', 'password']);
     const prefillUrl = (current.url || '').trim().replace(/\/$/, '');
     const prefillUsername = (current.username || '').trim();
 
@@ -775,7 +825,7 @@
           return;
         }
 
-        await chrome.storage.sync.set({ url, username, password });
+        await storageSet('sync', { url, username, password });
 
         // Validate credentials with a tiny request (fetch 1 note chunk).
         updateSyncStatus('Connecting...');
@@ -796,12 +846,12 @@
   // ── In-panel settings (Nextcloud) ─────────────────────────────────
   async function populateSettingsForm() {
     await refreshCredsAndSyncPref();
-    const data = await chrome.storage.sync.get(['url', 'username', 'password']);
+    const data = await storageGet('sync', ['url', 'username', 'password']);
     if (settingsUrl) settingsUrl.value = (data.url || '').trim().replace(/\/$/, '');
     if (settingsUsername) settingsUsername.value = (data.username || '').trim();
     if (settingsPassword) settingsPassword.value = (data.password || '').trim();
     if (settingsEnableSync) {
-      const pref = await chrome.storage.local.get([STORAGE_SYNC_ENABLED_KEY]);
+      const pref = await storageGet('local', [STORAGE_SYNC_ENABLED_KEY]);
       const stored = pref[STORAGE_SYNC_ENABLED_KEY];
       if (typeof stored === 'boolean') {
         settingsEnableSync.checked = stored;
@@ -831,7 +881,7 @@
     const url = settingsUrl ? (settingsUrl.value || '').trim().replace(/\/$/, '') : '';
     const username = settingsUsername ? (settingsUsername.value || '').trim() : '';
     const password = settingsPassword ? (settingsPassword.value || '').trim() : '';
-    await chrome.storage.sync.set({ url, username, password });
+    await storageSet('sync', { url, username, password });
     await refreshCredsAndSyncPref();
     if (url && username && password) {
       setSettingsStatus('Saved.', 'ok');
@@ -849,7 +899,7 @@
       setSettingsStatus('Fill server URL, username, and password first.', 'err');
       return;
     }
-    await chrome.storage.sync.set({ url, username, password });
+    await storageSet('sync', { url, username, password });
     updateSyncStatus('Connecting…');
     const resp = await sendNcMessage('ncFetchNotes', { chunkSize: 1 });
     await refreshCredsAndSyncPref();
@@ -879,7 +929,7 @@
   }
   if (settingsEnableSync) {
     settingsEnableSync.addEventListener('change', async () => {
-      await chrome.storage.local.set({ [STORAGE_SYNC_ENABLED_KEY]: settingsEnableSync.checked });
+      await storageSet('local', { [STORAGE_SYNC_ENABLED_KEY]: settingsEnableSync.checked });
       await refreshCredsAndSyncPref();
       updateSyncStatus();
     });
@@ -887,7 +937,7 @@
   // ── Storage ──────────────────────────────────────────────────────────
   function loadNotes() {
     return new Promise(resolve => {
-      chrome.storage.local.get([STORAGE_NOTES_KEY], result => {
+      storageGet('local', [STORAGE_NOTES_KEY]).then(result => {
         notes = result[STORAGE_NOTES_KEY] || [];
         resolve(notes);
       });
@@ -896,7 +946,7 @@
 
   function saveNotes() {
     return new Promise(resolve => {
-      chrome.storage.local.set({ [STORAGE_NOTES_KEY]: notes }, resolve);
+      storageSet('local', { [STORAGE_NOTES_KEY]: notes }).then(resolve);
     });
   }
 
@@ -1521,13 +1571,24 @@
 
   // ── Nextcloud sync ─────────────────────────────────────────────────
   function sendNcMessage(action, payload) {
+    const message = { action, ...(payload || {}) };
+    // Firefox prefers promise-based messaging. Keep callback fallback for Chromium.
+    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.sendMessage) {
+      return browser.runtime.sendMessage(message)
+        .then(resp => resp || { ok: false, error: 'Empty response from background.', code: 'EMPTY' })
+        .catch(err => ({
+          ok: false,
+          error: err && err.message ? err.message : 'Unknown error',
+          code: 'RUNTIME'
+        }));
+    }
     return new Promise(resolve => {
-      chrome.runtime.sendMessage({ action, ...payload }, response => {
+      chrome.runtime.sendMessage(message, response => {
         if (chrome.runtime.lastError) {
           resolve({ ok: false, error: chrome.runtime.lastError.message || 'Unknown error', code: 'RUNTIME' });
           return;
         }
-        resolve(response);
+        resolve(response || { ok: false, error: 'Empty response from background.', code: 'EMPTY' });
       });
     });
   }
@@ -1645,8 +1706,34 @@
       return;
     }
 
-    console.error('[Nextcloud Notes] Update failed:', syncFailureDetail(resp) || '(no detail)', { noteId, resp });
-    lastSyncErrorRaw = syncFailureDetail(resp);
+    const detail = syncFailureDetail(resp) || '(no detail)';
+    const remoteMissing =
+      (resp && resp.status === 404) ||
+      /NoteDoesNotExistException/i.test(detail) ||
+      /note.*does not exist/i.test(detail);
+
+    // If the note was deleted on the server elsewhere, remove the local "synced" copy
+    // so it doesn't stick around until reload.
+    if (remoteMissing) {
+      notes = notes.filter(n => n.id !== note.id);
+      await saveNotes();
+
+      if (note.id === currentNoteId) {
+        currentNoteId = null;
+        showView('list');
+      }
+
+      buildCategoryOptions();
+      buildNoteCategoryDropdownOptions();
+      renderActiveFilters();
+      renderTagChips(currentNoteId ? (getNoteById(currentNoteId)?.tags || []) : []);
+      renderList();
+      updateSyncStatus('Remote note deleted on server.');
+      return;
+    }
+
+    console.error('[Nextcloud Notes] Update failed:', detail, { noteId, resp });
+    lastSyncErrorRaw = detail;
     updateSyncStatus('Sync failed' + formatSyncError(resp));
   }
 
@@ -1779,11 +1866,20 @@
           if (!isRemoteReadOnly) {
             const resp = await sendNcMessage('ncDeleteNote', { noteId: note.remote.id });
             if (!resp || !resp.ok) {
-              saveStatus.textContent = (resp && resp.error) ? resp.error : 'Failed to delete.';
-              saveStatus.classList.add('visible');
-              overlay.remove();
-              setTimeout(() => saveStatus.classList.remove('visible'), 2200);
-              return;
+              const detail = syncFailureDetail(resp) || (resp && resp.error) ? String(resp.error) : '';
+              const remoteMissing =
+                (resp && resp.status === 404) ||
+                /NoteDoesNotExistException/i.test(detail) ||
+                /note.*does not exist/i.test(detail);
+
+              // If already deleted on the server, treat as success and just remove locally.
+              if (!remoteMissing) {
+                saveStatus.textContent = (resp && resp.error) ? resp.error : 'Failed to delete.';
+                saveStatus.classList.add('visible');
+                overlay.remove();
+                setTimeout(() => saveStatus.classList.remove('visible'), 2200);
+                return;
+              }
             }
           }
           // If read-only on server, we still allow local removal.
@@ -1921,7 +2017,7 @@
   if (categorySelect) {
     categorySelect.addEventListener('change', async () => {
       categoryFilter = categorySelect.value;
-      await chrome.storage.local.set({ [STORAGE_CATEGORY_FILTER_KEY]: categoryFilter });
+      await storageSet('local', { [STORAGE_CATEGORY_FILTER_KEY]: categoryFilter });
       renderList();
     });
   }
@@ -2012,7 +2108,7 @@
 
     if (syncEnabled) {
       syncEnabled = false;
-      await chrome.storage.local.set({ [STORAGE_SYNC_ENABLED_KEY]: false });
+      await storageSet('local', { [STORAGE_SYNC_ENABLED_KEY]: false });
       updateSyncStatus();
       return;
     }
@@ -2020,7 +2116,7 @@
     // Enabling sync is optional; if no creds are present we prompt.
     const ok = await ensureCredsForNextcloud({ defaultEnableSync: true });
     if (ok) syncEnabled = true;
-    await chrome.storage.local.set({ [STORAGE_SYNC_ENABLED_KEY]: syncEnabled });
+    await storageSet('local', { [STORAGE_SYNC_ENABLED_KEY]: syncEnabled });
     updateSyncStatus();
   });
 
@@ -2161,7 +2257,7 @@
     await loadNotes();
     await refreshCredsAndSyncPref();
 
-    const pref = await chrome.storage.local.get([STORAGE_CATEGORY_FILTER_KEY]);
+    const pref = await storageGet('local', [STORAGE_CATEGORY_FILTER_KEY]);
     if (typeof pref[STORAGE_CATEGORY_FILTER_KEY] === 'string' && pref[STORAGE_CATEGORY_FILTER_KEY]) {
       categoryFilter = pref[STORAGE_CATEGORY_FILTER_KEY];
     }

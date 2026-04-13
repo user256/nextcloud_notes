@@ -29,29 +29,36 @@ document.addEventListener('DOMContentLoaded', () => {
     saveButton.disabled = true;
     status.textContent = 'Saving...';
 
-    chrome.runtime.sendMessage(
-      {
-        action: 'saveNote',
-        text,
-        title
-      },
-      (response) => {
-        saveButton.disabled = false;
-
-        if (chrome.runtime.lastError) {
-          status.textContent = 'Error: ' + chrome.runtime.lastError.message;
-          return;
-        }
-
-        if (response && response.ok) {
-          status.textContent = 'Saved.';
-          noteText.value = '';
-          noteTitle.value = '';
-          noteText.focus();
-        } else {
-          status.textContent = (response && response.error) ? response.error : 'Failed to save note.';
-        }
+    const message = { action: 'saveNote', text, title };
+    const handleResponse = (response) => {
+      saveButton.disabled = false;
+      if (response && response.ok) {
+        status.textContent = 'Saved.';
+        noteText.value = '';
+        noteTitle.value = '';
+        noteText.focus();
+      } else {
+        status.textContent = (response && response.error) ? response.error : 'Failed to save note.';
       }
-    );
+    };
+
+    if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.sendMessage) {
+      browser.runtime.sendMessage(message)
+        .then(handleResponse)
+        .catch(err => {
+          saveButton.disabled = false;
+          status.textContent = 'Error: ' + (err && err.message ? err.message : 'Unknown error');
+        });
+      return;
+    }
+
+    chrome.runtime.sendMessage(message, (response) => {
+      saveButton.disabled = false;
+      if (chrome.runtime.lastError) {
+        status.textContent = 'Error: ' + chrome.runtime.lastError.message;
+        return;
+      }
+      handleResponse(response);
+    });
   });
 });

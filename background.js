@@ -1,13 +1,12 @@
-chrome.action.onClicked.addListener(tab => {
-  chrome.sidePanel.open({ tabId: tab.id });
-});
-
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.sidePanel.setOptions({
-    enabled: true,
-    path: 'sidepanel.html'
+if (typeof browser !== 'undefined' && browser.browserAction && browser.sidebarAction) {
+  browser.browserAction.onClicked.addListener(async () => {
+    try {
+      await browser.sidebarAction.open();
+    } catch {
+      // Ignore - sidebar open can fail on some internal pages.
+    }
   });
-});
+}
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
@@ -55,7 +54,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function getCreds() {
-  const data = await chrome.storage.sync.get(['url', 'username', 'password']);
+  let data;
+  // Firefox supports promise-based `browser.*` storage APIs; Chrome uses callback-based `chrome.*`.
+  if (typeof browser !== 'undefined' && browser.storage && browser.storage.sync && typeof browser.storage.sync.get === 'function') {
+    data = await browser.storage.sync.get(['url', 'username', 'password']);
+  } else {
+    data = await new Promise(resolve => {
+      // Callback-style fallback (Chromium / MV2).
+      chrome.storage.sync.get(['url', 'username', 'password'], result => resolve(result || {}));
+    });
+  }
   const baseUrl = (data.url || '').trim().replace(/\/$/, '');
   const username = (data.username || '').trim();
   const password = (data.password || '').trim();
